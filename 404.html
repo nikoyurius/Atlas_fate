@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="ru"><meta name="fate-room-api" content="https://fate-atlas.purpleriver592205.chatgpt.site">
+<html lang="ru"><meta name="fate-room-api" content="https://fate-atlas.purpleriver592205.chatgpt.site"><meta name="fate-room-fallback" content="https://fate-atlas-table.onrender.com">
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Fate Atlas — место для ваших историй</title><meta name="description" content="Свободная игровая доска Fate: персонажи, аспекты, кубики и пространство для ваших идей."><meta name="theme-color" content="#f7f7f2">
@@ -833,7 +833,16 @@ const zoneLoadFiles=loadFiles;loadFiles=async function(...args){if(document.body
 
 const zoneAddFate=addFate;addFate=function(...args){if(document.body.dataset.boardLayer==='zones')setBoardLayer('game');return zoneAddFate(...args)};
 const zonePaste=pasteSelection;pasteSelection=function(...args){if(clipboard?.cards?.length){const onlyZones=clipboard.cards.every(c=>c.zone);if(onlyZones&&role!=='gm'){notice('Зоны редактирует ведущий.');return}if(onlyZones&&document.body.dataset.boardLayer!=='zones')setBoardLayer('zones');else if(!onlyZones&&document.body.dataset.boardLayer==='zones')setBoardLayer('game')}return zonePaste(...args)};
-const roomAPIOrigin=document.querySelector('meta[name="fate-room-api"]')?.content||'';
+// Select before issuing any mutation; never retry a possibly committed POST.
+async function chooseRoomOrigin(direct,fallback,fetcher=fetch){
+ if(!direct||!fallback)return direct;
+ try{const response=await fetcher(direct+'/api/rooms',{method:'OPTIONS',cache:'no-store',signal:AbortSignal.timeout(6000)});if(response.status===204)return direct}catch{}
+ return fallback;
+}
+let roomAPIOrigin=document.querySelector('meta[name="fate-room-api"]')?.content||'';
+const roomFallbackOrigin=document.querySelector('meta[name="fate-room-fallback"]')?.content||'';
+let roomEndpointPromise;
+function roomResolveEndpoint(){return roomEndpointPromise||=chooseRoomOrigin(roomAPIOrigin,roomFallbackOrigin).then(origin=>roomAPIOrigin=origin)}
 /* Shared rooms use per-object patches; the local board remains independent. */
 let roomSession=null,roomBaseline={cards:[],links:[]},roomRevision=-1,roomCursor=0,roomBusy=false,roomTimer,roomLocal=null,roomBooting=false;
 let roomMembers=[],roomSettings={},roomApplying=false,roomCallId='',roomMuted=false,roomPollRunning=false;
@@ -848,7 +857,7 @@ const roomState=()=>({cards:copy(cards),links:copy(links)});
 function roomDiff(base,next){const diff=(a,b)=>{const old=new Map(a.map(c=>[c.id,JSON.stringify(c)])),ids=new Set(b.map(c=>c.id));return[b.filter(c=>old.get(c.id)!==JSON.stringify(c)),a.filter(c=>!ids.has(c.id)).map(c=>c.id)]};const [cs,dc]=diff(base.cards,next.cards),[ls,dl]=diff(base.links,next.links);return{cards:cs,links:ls,deletedCards:dc,deletedLinks:dl}}
 const roomHasDiff=p=>p.cards.length||p.links.length||p.deletedCards.length||p.deletedLinks.length;
 function roomMerge(base,patch){const merge=(list,up,del)=>{const m=new Map(list.map(c=>[c.id,c]));del.forEach(id=>m.delete(id));up.forEach(c=>m.set(c.id,c));return[...m.values()]};const cs=merge(base.cards,patch.cards,patch.deletedCards),ids=new Set(cs.map(c=>c.id));return{cards:cs,links:merge(base.links,patch.links,patch.deletedLinks).filter(l=>ids.has(l.a)&&ids.has(l.b))}}
-async function roomAPI(path='',data,session=roomSession){const url=roomAPIOrigin+'/api/rooms'+(session?'/'+session.id:'')+(path?'/'+path:'');const response=await fetch(url,{method:data===undefined?'GET':'POST',headers:{...(data===undefined?{}:{'Content-Type':'application/json'}),...(session?.token?{Authorization:'Bearer '+session.token}:{})},body:data===undefined?undefined:JSON.stringify(data),cache:'no-store',signal:AbortSignal.timeout(15000)});const result=await response.json();if(!response.ok)throw Object.assign(new Error(result.error||'Нет связи с сервером.'),{status:response.status});return result}
+async function roomAPI(path='',data,session=roomSession){await roomResolveEndpoint();const url=roomAPIOrigin+'/api/rooms'+(session?'/'+session.id:'')+(path?'/'+path:'');const response=await fetch(url,{method:data===undefined?'GET':'POST',headers:{...(data===undefined?{}:{'Content-Type':'application/json'}),...(session?.token?{Authorization:'Bearer '+session.token}:{})},body:data===undefined?undefined:JSON.stringify(data),cache:'no-store',signal:AbortSignal.timeout(15000)});const result=await response.json();if(!response.ok)throw Object.assign(new Error(result.error||'Нет связи с сервером.'),{status:response.status});return result}
 function roomError(e){$('#board-status').textContent=roomSession?'Комната · нет связи, изменения ждут отправки':'Не удалось открыть комнату';notice(e.name==='TimeoutError'?'Сервер не отвечает. Попробуйте снова.':e.message||'Нет связи с сервером.')}
 function roomAssign(next){
  // Preserve references captured by inline character and skill editors.
@@ -921,7 +930,7 @@ function roomRoll(data){if(roomSession)roomAPI('event',{kind:'roll',data}).catch
 function roomShowRoll(e){if(e.sender===roomSession.member)return;const d=e.data,raw=d.nums.reduce((a,b)=>a+b,0),total=raw+d.mod,text=d.player+' · '+d.who+': ['+d.nums.map(signed).join(' ')+'] '+signed(raw)+' + ('+signed(d.mod)+') = '+signed(total);$('#who').textContent=d.player+' · '+d.who;$('#result').textContent=signed(total);const item=E('div');item.textContent=text;$('#history').prepend(item);while($('#history').children.length>30)$('#history').lastChild.remove();notice(text)}
 async function roomPoll(){if(!roomSession||roomPollRunning||roomBooting)return;roomPollRunning=true;const session=roomSession;try{await roomSync();if(roomBusy)return;const musicRequestedAt=Date.now();const r=await roomAPI('?since='+roomCursor+'&revision='+roomRevision);if(roomSession!==session)return;musicReceive(r.media,r.serverNow,musicRequestedAt);const callChanged=roomSettings.callEnabled!==r.settings.callEnabled;roomSettings=r.settings;roomMembers=r.members;if(callChanged)roomRenderCall();if(r.revision!==roomRevision&&!drag&&!editing&&!isForm(document.activeElement)){roomApply(r.state);roomRevision=r.revision}if(!r.settings.callEnabled&&(roomVoiceAPI||roomVoiceLoading))await roomCallLeave();for(const e of r.events){roomCursor=Math.max(roomCursor,e.id);if(e.kind==='roll')roomShowRoll(e);}roomButton.textContent='Комната · '+r.members.length;roomRenderMembers();roomStatus()}catch(e){$('#board-status').textContent='Комната · переподключение…'}finally{roomPollRunning=false}}
 // Keep the query on the room endpoint rather than treating it as a path segment.
-const roomOriginalAPI=roomAPI;roomAPI=async function(path='',data,session=roomSession){if(path.startsWith('?')){const response=await fetch(roomAPIOrigin+'/api/rooms/'+session.id+path,{headers:{Authorization:'Bearer '+session.token},cache:'no-store',signal:AbortSignal.timeout(15000)});const result=await response.json();if(!response.ok)throw Object.assign(new Error(result.error),{status:response.status});return result}return roomOriginalAPI(path,data,session)};
+const roomOriginalAPI=roomAPI;roomAPI=async function(path='',data,session=roomSession){if(path.startsWith('?')){await roomResolveEndpoint();const response=await fetch(roomAPIOrigin+'/api/rooms/'+session.id+path,{headers:{Authorization:'Bearer '+session.token},cache:'no-store',signal:AbortSignal.timeout(15000)});const result=await response.json();if(!response.ok)throw Object.assign(new Error(result.error),{status:response.status});return result}return roomOriginalAPI(path,data,session)};
 queueMicrotask(async()=>{const id=new URL(location.href).searchParams.get('room');if(id){roomPanel.hidden=false;roomRender();roomBooting=true;try{const raw=localStorage.getItem(roomStore(id));if(raw)await roomStart(JSON.parse(raw))}catch(e){roomError(e)}finally{roomBooting=false}}setInterval(roomPoll,1200)});
 window.addEventListener('online',roomPoll);window.addEventListener('pagehide',()=>{roomVoiceAPI?.dispose();if(roomSession)fetch(roomAPIOrigin+'/api/rooms/'+roomSession.id+'/presence',{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+roomSession.token},body:JSON.stringify({inCall:false,muted:true}),keepalive:true}).catch(()=>{})});
 
