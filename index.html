@@ -128,6 +128,8 @@ header .desktop-command{font:inherit;font-size:12px;min-height:35px;padding:8px 
 @media(max-width:760px),(pointer:coarse) and (max-width:1100px){.card,.tokenface,.panel,#properties,header,#toolrail{backdrop-filter:none!important}.panel,#properties{overscroll-behavior:contain;-webkit-overflow-scrolling:touch}#world .card,#world .board-node{contain:layout style}#world .token{contain:layout style}body.board-moving #viewport{cursor:grabbing}}
 @media(prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important;scroll-behavior:auto!important}}
 
+.light-dice{position:fixed;z-index:9200;display:flex;justify-content:center;gap:10px;pointer-events:none;transform:translateY(-50%)}.light-die{width:56px;height:56px;border-radius:10px;background:#fafaff;border:1px solid #d5d6e5;box-shadow:0 5px 10px #20264020;display:grid;place-items:center;font:36px/1 system-ui;color:#31314b;animation:light-dice-drop 320ms ease-out}.light-die img{width:100%;height:100%;object-fit:cover;border-radius:9px}@keyframes light-dice-drop{from{opacity:0;transform:translateY(-55px) rotate(-15deg)}to{opacity:1;transform:translateY(0) rotate(0)}}
+
 </style>
 
 <div id="viewport"><div id="world"><svg id="wires"></svg></div></div>
@@ -472,7 +474,27 @@ function toggleLayers(){layers.hidden=!layers.hidden;if(!layers.hidden){properti
 function renderLayers(){if(layers.hidden)return;layerBody.replaceChildren();const list=cards.filter(c=>visible(c)&&!c.zone).slice().reverse();if(!list.length)layerBody.append(Object.assign(E('p','muted'),{textContent:'На доске пока нет объектов.'}));for(const c of list){const row=E('div','layer-row');row.classList.toggle('selected',selected.has(c.id));const name=E('span','layer-name');name.textContent=(c.object==='frame'?'▱ ':c.object==='image'?'▧ ':c.type==='character'?'♙ ':'')+(c.title||c.body?.slice(0,30)||'Объект');if(c.layer==='gm')name.classList.add('private');row.append(name,B(c.locked?'▣':'□',ev=>{ev.stopPropagation();snapshot();c.locked=!c.locked;render();persist()},c.locked?'Разблокировать':'Закрепить'));row.onclick=ev=>{select([c.id],ev.shiftKey);const d=dims(c);view.x=(innerWidth-300)/2-(c.x+d.w/2)*view.z;view.y=innerHeight/2-(c.y+d.h/2)*view.z;transform()};layerBody.append(row)}}
 
 // Connections: wide hit areas, arrowheads, labels and three routes.
-drawLinks=function(){const byId=new Map(cards.filter(visible).map(c=>[c.id,c]));svg.replaceChildren();const defs=S('defs');svg.append(defs);let index=0;for(const l of links){const a=byId.get(l.a),b=byId.get(l.b);if(!a||!b)continue;const p=edge(a,center(b)),q=edge(b,center(a)),t=cleanLink(l),mx=(p.x+q.x)/2,my=(p.y+q.y)/2;let d=`M ${p.x} ${p.y} L ${q.x} ${q.y}`,labelY=my-10,labelX=mx;if(t.route==='curve'){const dx=q.x-p.x,dy=q.y-p.y,len=Math.hypot(dx,dy)||1,cx=mx-dy/len*70,cy=my+dx/len*70;d=`M ${p.x} ${p.y} Q ${cx} ${cy} ${q.x} ${q.y}`;labelX=(mx+cx)/2;labelY=(my+cy)/2-10}if(t.route==='elbow')d=`M ${p.x} ${p.y} H ${mx} V ${q.y} H ${q.x}`;const pick=e=>{e.preventDefault();e.stopPropagation();selected.clear();selectedLink=l.id;$('#linecolor').value=l.color;drawLinks();updateSelection();renderProperties()};const markerId='arrow-'+index++;const marker=S('marker',{id:markerId,viewBox:'0 0 10 10',refX:9,refY:5,markerWidth:5,markerHeight:5,orient:'auto-start-reverse'});marker.append(S('path',{d:'M 0 0 L 10 5 L 0 10 z',fill:l.color}));defs.append(marker);if(selectedLink===l.id)svg.append(S('path',{d,fill:'none',stroke:'#7d88ff44','stroke-width':t.width+8}));const path=S('path',{d,fill:'none',stroke:l.color,'stroke-width':t.width,'stroke-linecap':'round','stroke-linejoin':'round'});if(t.dash!=='solid')path.setAttribute('stroke-dasharray',t.dash==='dash'?'10 7':'1 7');if(t.arrows!=='none')path.setAttribute('marker-end',`url(#${markerId})`);if(t.arrows==='both')path.setAttribute('marker-start',`url(#${markerId})`);svg.append(path);const hit=S('path',{d,fill:'none',stroke:'transparent','stroke-width':Math.max(16,t.width+10),class:'wire'});hit.onpointerdown=pick;svg.append(hit);if(t.label){const text=S('text',{x:labelX,y:labelY,'text-anchor':'middle',fill:l.color,'font-size':14,'font-family':'system-ui','paint-order':'stroke',stroke:'var(--bg)','stroke-width':5});text.textContent=t.label;text.style.pointerEvents='auto';text.style.cursor='pointer';text.onpointerdown=pick;svg.append(text)}}if(source){const e=node(source);e?.classList.add('source')}};
+const wireCache=new Map();let wireDefs,wireSerial=0;
+function wireAttribute(element,name,value){if(value==null){if(element.hasAttribute(name))element.removeAttribute(name)}else if(element.getAttribute(name)!==String(value))element.setAttribute(name,String(value))}
+drawLinks=function(){
+ if(!wireDefs?.isConnected){wireCache.clear();svg.replaceChildren();wireDefs=S('defs');svg.append(wireDefs)}
+ const byId=new Map(cards.filter(visible).map(c=>[c.id,c])),active=new Set(),groups=[];
+ for(const l of links){const a=byId.get(l.a),b=byId.get(l.b);if(!a||!b)continue;active.add(l.id);let record=wireCache.get(l.id);
+  if(record&&record.ref!==l){record.group.remove();record.marker.remove();wireCache.delete(l.id);record=null}
+  if(!record){const id='wire-arrow-'+ ++wireSerial,group=S('g'),marker=S('marker',{id,viewBox:'0 0 10 10',refX:9,refY:5,markerWidth:5,markerHeight:5,orient:'auto-start-reverse'}),tip=S('path',{d:'M 0 0 L 10 5 L 0 10 z'});marker.append(tip);wireDefs.append(marker);
+   const halo=S('path',{fill:'none',stroke:'#7d88ff44'}),path=S('path',{fill:'none','stroke-linecap':'round','stroke-linejoin':'round'}),hit=S('path',{fill:'none',stroke:'transparent',class:'wire'}),text=S('text',{'text-anchor':'middle','font-size':14,'font-family':'system-ui','paint-order':'stroke',stroke:'var(--bg)','stroke-width':5});
+   const pick=e=>{e.preventDefault();e.stopPropagation();selected.clear();selectedLink=l.id;$('#linecolor').value=l.color;drawLinks();updateSelection();renderProperties()};hit.onpointerdown=pick;text.onpointerdown=pick;text.style.pointerEvents='auto';text.style.cursor='pointer';group.append(halo,path,hit,text);record={ref:l,group,marker,tip,halo,path,hit,text,id};wireCache.set(l.id,record)
+  }
+  const p=edge(a,center(b)),q=edge(b,center(a)),t=cleanLink(l),g=connectionGeometry(p,q,t.route);
+  for(const e of [record.path,record.halo,record.hit])wireAttribute(e,'d',g.d);
+  wireAttribute(record.path,'stroke',l.color);wireAttribute(record.path,'stroke-width',t.width);wireAttribute(record.path,'stroke-dasharray',t.dash==='solid'?null:t.dash==='dash'?'10 7':'1 7');
+  wireAttribute(record.path,'marker-end',t.arrows==='none'?null:`url(#${record.id})`);wireAttribute(record.path,'marker-start',t.arrows==='both'?`url(#${record.id})`:null);wireAttribute(record.tip,'fill',l.color);wireAttribute(record.halo,'stroke-width',t.width+8);record.halo.style.display=selectedLink===l.id?'':'none';wireAttribute(record.hit,'stroke-width',Math.max(16,t.width+10));
+  wireAttribute(record.text,'x',g.x);wireAttribute(record.text,'y',g.y);wireAttribute(record.text,'fill',l.color);if(record.text.textContent!==t.label)record.text.textContent=t.label;record.text.style.display=t.label?'':'none';groups.push(record.group);
+ }
+ for(const [id,r]of wireCache)if(!active.has(id)){r.group.remove();r.marker.remove();wireCache.delete(id)}
+ let anchor=null;for(let i=groups.length-1;i>=0;i--){const g=groups[i];if(g.parentNode!==svg||g.nextSibling!==anchor)svg.insertBefore(g,anchor);anchor=g}
+ world.querySelectorAll('.source').forEach(e=>{if(e.dataset.id!==source)e.classList.remove('source')});if(source)node(source)?.classList.add('source');
+};
 $('#linecolor').oninput=()=>{const l=links.find(l=>l.id===selectedLink);if(l){l.color=$('#linecolor').value;drawLinks();renderProperties();persist()}};
 $('#deletelink').onclick=()=>{if(selectedLink)removeSelected();else notice('Выберите линию на поле.')};
 
@@ -566,6 +588,11 @@ const l1=text('01  /  ГЕРОИ',130,232,230,24,11,'#8b918b',true),l2=text('02 
 const footer=text('Бесконечное поле. Никаких рамок для воображения.',130,584,850,30,14,'#92978f');
 cards=[eyebrow,title,subtitle,l1,l2,l3,h,aspect,note,footer];links=[];view=mobileMode()?{x:15,y:90,z:.62}:{x:42,y:82,z:Math.min(1,(innerWidth-140)/1080)};
 };
+function connectionGeometry(p,q,route){
+ const mx=(p.x+q.x)/2,my=(p.y+q.y)/2;
+ if(route==='curve'){const dx=q.x-p.x,dy=q.y-p.y,len=Math.hypot(dx,dy)||1,cx=mx-dy/len*70,cy=my+dx/len*70;return {d:`M ${p.x} ${p.y} Q ${cx} ${cy} ${q.x} ${q.y}`,x:(mx+cx)/2,y:(my+cy)/2-10}}
+ return {d:route==='elbow'?`M ${p.x} ${p.y} H ${mx} V ${q.y} H ${q.x}`:`M ${p.x} ${p.y} L ${q.x} ${q.y}`,x:mx,y:my-10};
+}
 // One execution per animation frame; flush preserves the final pointer position.
 function frameQueue(run,schedule=requestAnimationFrame,cancel=cancelAnimationFrame){
  let frame=null,args,receiver;
@@ -751,22 +778,29 @@ let historyFrame=0;function syncHistoryButtons(){if(historyFrame)return;historyF
 const historySnapshot=snapshot;snapshot=function(){historySnapshot();syncHistoryButtons()};const historyPersist=persist;persist=function(){historyPersist();syncHistoryButtons()};syncHistoryButtons();
 /* The scene is loaded only on the first roll; textures and designs stay local. */
 linkMenu.remove();linkMenu.hidden=true;document.body.append(linkMenu);
-let diceStage=null,diceModule=null,physicsRemoveTimer;
-const classicClearDice=clearDice;clearDice=function(){clearTimeout(physicsRemoveTimer);diceStage?.clear();classicClearDice()};
+let diceStage=null,diceModule=null,physicsRemoveTimer,dice3DUnavailable=false;
+const classicClearDice=clearDice;clearDice=function(){++rollGeneration;clearTimeout(physicsRemoveTimer);diceStage?.clear();document.getElementById('light-dice')?.remove();classicClearDice()};
 function diceArea(){const mobile=mobileMode(),top=mobile?125:95,bottom=mobile?190:90,left=mobile?0:86;let right=innerWidth;for(const p of document.querySelectorAll('.panel,#properties'))if(!p.hidden&&!mobile){const r=p.getBoundingClientRect();if(r.left>innerWidth*.45)right=Math.min(right,r.left-12)}return{x:left,y:top,w:Math.max(220,right-left),h:Math.max(160,innerHeight-top-bottom)}}
 throwDice=async function(mod,character='',skill=''){
- if(rolling)return;rolling=true;$('#manual').disabled=true;clearDice();mod=bonus(mod);const who=character?character+(skill?' · '+skill:''):'Ручной бросок';
+ if(rolling)return;rolling=true;$('#manual').disabled=true;clearDice();const generation=rollGeneration;mod=bonus(mod);const who=character?character+(skill?' · '+skill:''):'Ручной бросок';
  if(mobileMode()){dismissMobileSheets();document.body.classList.add('mobile-rolling')}
  $('#who').textContent=who+' · бросок…';$('#result').textContent='…';
  try{
-  if(!diceModule)diceModule=import('./dice-physics.js');const module=await diceModule;if(!diceStage)diceStage=new module.DiceStage();
-  const {indices}=await diceStage.roll({faces,area:diceArea});const nums=indices.map(i=>values[i]),raw=nums.reduce((a,b)=>a+b,0),total=raw+mod;
-  roomRoll({nums,mod,who});$('#who').textContent=who+' · бонус '+signed(mod);$('#result').textContent=signed(total);const item=E('div');item.textContent=`${new Date().toLocaleTimeString('ru',{hour:'2-digit',minute:'2-digit'})} · ${who}\n[${nums.map(signed).join(' ')}] ${signed(raw)} + (${signed(mod)}) = ${signed(total)}`;$('#history').prepend(item);while($('#history').children.length>30)$('#history').lastChild.remove();notice(`${who}: ${signed(raw)} + (${signed(mod)}) = ${signed(total)}`);
-  physicsRemoveTimer=setTimeout(()=>{diceStage?.clear();document.body.classList.remove('mobile-rolling')},2600);
- }catch(e){diceModule=null;diceStage?.clear();$('#result').textContent='—';notice(e.message?.includes('Кубики')?e.message:'Не удалось включить 3D. Проверьте поддержку WebGL в браузере.');document.body.classList.remove('mobile-rolling')}
+  let indices,fallback=false;
+  try{if(dice3DUnavailable)throw Error('WebGL unavailable');if(!diceModule)diceModule=import('./dice-physics.js');const module=await diceModule;if(generation!==rollGeneration)return;if(!diceStage)diceStage=new module.DiceStage();({indices}=await diceStage.roll({faces,area:diceArea}))}
+  catch(e){if(generation!==rollGeneration)return;if(!diceStage)dice3DUnavailable=true;diceStage?.clear();indices=Array.from({length:4},randomFace);fallback=true;showLightDice(indices);await new Promise(resolve=>setTimeout(resolve,matchMedia('(prefers-reduced-motion: reduce)').matches?0:320))}
+  if(generation!==rollGeneration)return;
+  const nums=indices.map(i=>values[i]),raw=nums.reduce((a,b)=>a+b,0),total=raw+mod;
+  roomRoll({nums,mod,who});$('#who').textContent=who+' · бонус '+signed(mod);$('#result').textContent=signed(total);const item=E('div');item.textContent=`${new Date().toLocaleTimeString('ru',{hour:'2-digit',minute:'2-digit'})} · ${who}\n[${nums.map(signed).join(' ')}] ${signed(raw)} + (${signed(mod)}) = ${signed(total)}`;$('#history').prepend(item);while($('#history').children.length>30)$('#history').lastChild.remove();notice(`${fallback?'Упрощённый бросок · ':''}${who}: ${signed(raw)} + (${signed(mod)}) = ${signed(total)}`);
+  physicsRemoveTimer=setTimeout(()=>{diceStage?.clear();document.getElementById('light-dice')?.remove();document.body.classList.remove('mobile-rolling')},2600);
+ }catch(e){diceModule=null;diceStage?.clear();$('#result').textContent='—';notice('Не удалось завершить бросок. Повторите его.');document.body.classList.remove('mobile-rolling')}
  finally{rolling=false;$('#manual').disabled=false;}
 };
-$('#dice .small').textContent='Гравитация, столкновения и отскоки. Результат — верхние грани остановившихся кубиков. После броска кубики остаются на поле 2,6 секунды. В комнате результаты видны всем участникам.';
+function showLightDice(indices){
+ const layer=E('div','light-dice');layer.id='light-dice';layer.setAttribute('role','img');layer.setAttribute('aria-label','Упрощённый бросок кубиков Fate');const area=diceArea();layer.style.left=area.x+'px';layer.style.top=(area.y+area.h*.5)+'px';layer.style.width=area.w+'px';
+ for(const index of indices){const die=E('div','light-die');if(faces?.[index]){const img=E('img');img.src=faces[index];img.alt=values[index]>0?'Плюс':values[index]<0?'Минус':'Пустая грань';die.append(img)}else die.textContent=values[index]>0?'+':values[index]<0?'−':'·';layer.append(die)}document.body.append(layer);
+}
+$('#dice .small').textContent='Гравитация, столкновения и отскоки. Результат — верхние грани остановившихся кубиков. После броска кубики остаются на поле 2,6 секунды. Если 3D недоступно, сработает упрощённый бросок. В комнате результаты видны всем участникам.';
 // Replace the quick-roll callback, which originally referenced the prior function.
 quickRoll.onclick=()=>throwDice(0);
 
