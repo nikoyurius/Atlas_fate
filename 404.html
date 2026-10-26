@@ -122,6 +122,12 @@ header .desktop-command{font:inherit;font-size:12px;min-height:35px;padding:8px 
 @media(max-width:760px),(pointer:coarse) and (max-width:1100px){header .desktop-command{display:none!important}.nav-pane{max-height:55dvh;width:100%;min-width:0}.nav-pane>button{min-height:44px;font-size:14px}.nav-tabs{position:sticky;top:0;background:var(--panel,#fff)}#action-finder{margin:80px auto auto;max-height:70dvh}.finder-list>button{min-height:48px}.finder-list small{max-width:90px;text-align:right}}
 @media(min-width:761px) and (max-width:1050px){header{gap:4px;padding:7px 9px}header .board-wordmark,header .desktop-history{display:none}header h1{font-size:20px}header summary,header .desktop-command{padding:8px!important;font-size:11px!important}header #room-open{padding:8px;font-size:11px}}
 
+#world{transform-origin:0 0}body.board-moving #world{will-change:transform}body.board-moving .card,body.board-moving .tokenface{box-shadow:none!important}img{ -webkit-user-drag:none}button,summary{transition:background-color 120ms ease,color 120ms ease,border-color 120ms ease}button:active{filter:brightness(.96)}
+@keyframes board-panel-in{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
+.panel:not([hidden]),#properties:not([hidden]){animation:board-panel-in 140ms ease-out}
+@media(max-width:760px),(pointer:coarse) and (max-width:1100px){.card,.tokenface,.panel,#properties,header,#toolrail{backdrop-filter:none!important}.panel,#properties{overscroll-behavior:contain;-webkit-overflow-scrolling:touch}#world .card,#world .board-node{contain:layout style}#world .token{contain:layout style}body.board-moving #viewport{cursor:grabbing}}
+@media(prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important;scroll-behavior:auto!important}}
+
 </style>
 
 <div id="viewport"><div id="world"><svg id="wires"></svg></div></div>
@@ -186,7 +192,7 @@ function textarea(value,label,change,max=1000){const e=document.createElement('t
 function heading(text){const e=document.createElement('div');e.className='section';e.textContent=text;return e}
 function addButton(text,fn){const b=button(text,fn);b.className='add';return b}
 function removeButton(fn,label){const b=button('×',fn,label);b.className='remove';return b}
-function transform(){world.style.transform=`translate(${view.x}px,${view.y}px) scale(${view.z})`;viewport.style.backgroundSize=`${24*view.z}px ${24*view.z}px`;viewport.style.backgroundPosition=`${view.x}px ${view.y}px`;$('#scale').textContent=Math.round(view.z*100)+'%'}
+function transform(){world.style.transform=`translate3d(${view.x}px,${view.y}px,0) scale(${view.z})`;viewport.style.backgroundSize=`${24*view.z}px ${24*view.z}px`;viewport.style.backgroundPosition=`${view.x}px ${view.y}px`;$('#scale').textContent=Math.round(view.z*100)+'%'}
 function renderWorld(){for(const e of [...world.children])if(e.matches('.card,.token'))e.remove();cards.forEach(c=>world.append(card(c)));drawLinks()}
 function render(){renderWorld();transform();if(infoId){const c=cards.find(c=>c.id===infoId);if(c)renderInfo(c);else{infoId=null;$('#inspector').hidden=true}}}
 function closePanels(){if(infoId){infoId=null;renderWorld()}for(const p of document.querySelectorAll('.panel'))p.hidden=true}
@@ -400,7 +406,7 @@ const snapToggle=E('input');snapToggle.type='checkbox';snapToggle.checked=snap;s
 const roleMenu=E('details','menugroup'),roleSummary=E('summary'),roleDrop=E('div','dropdown');roleSummary.textContent='♛ Ведущий';roleMenu.append(roleSummary,roleDrop);header.append(roleMenu);roleDrop.append(label('Режим',choose([['gm','Ведущий'],['player','Игрок']],role,v=>{role=v;selected.clear();selectedLink=null;source=null;connecting=false;closePanels();roleSummary.textContent=v==='gm'?'♛ Ведущий':'♙ Игрок';roleMenu.open=false;render();persist()})),B('Секретная заметка',()=>{if(role!=='gm')return;const c=create('sticky',lastPoint.x,lastPoint.y);c.layer='gm';render();select([c.id])}),Object.assign(E('div','small'),{textContent:'Локальные режимы просмотра. Слой мастера не защищён паролем.'}));
 addMenu.querySelector('.dropdown').append(B('Текст без карточки',()=>{setTool('text')}),B('Картинка…',()=>pickImages()),B('Стикер',()=>setTool('sticky')),B('Фигура',()=>setTool('shape')),B('Фрейм',()=>setTool('frame')));
 document.querySelectorAll('[data-add]').forEach(b=>b.onclick=()=>addFate(b.dataset.add));
-const originalTransform=transform;transform=function(){originalTransform();viewport.style.backgroundImage=grid?'radial-gradient(var(--grid) .8px,transparent .8px)':'none';updateSelection()};
+let selectionZoom;const originalTransform=transform;transform=function(){originalTransform();viewport.style.backgroundImage=grid?'radial-gradient(var(--grid) .8px,transparent .8px)':'none';if(selectionZoom!==view.z){selectionZoom=view.z;updateSelection()}};
 const legacyStart=start;start=function(ev,type,c,e){if(c.locked)return;return legacyStart(ev,type,c,e)};
 const originalContent=content;content=function(c,sidebar=false){const e=originalContent(c,sidebar);if(sidebar){const cons=e.querySelector('.consequences');if(cons)e.querySelector('.columns')?.append(cons)}return e};
 
@@ -414,9 +420,19 @@ function boardNode(c){const e=E('article','board-node '+c.object);e.dataset.id=c
  else{if(c.object==='shape'){const g=S('svg',{class:'shape-bg',viewBox:'0 0 '+c.w+' '+c.h,preserveAspectRatio:'none'});let shape;if(c.shape==='ellipse')shape=S('ellipse',{cx:c.w/2,cy:c.h/2,rx:c.w/2-2,ry:c.h/2-2});else if(['line','arrow'].includes(c.shape))shape=S('path',{d:c.flip?`M 2 ${c.h-2} L ${c.w-2} 2`:`M 2 2 L ${c.w-2} ${c.h-2}`,fill:'none'});else if(c.shape==='diamond')shape=S('polygon',{points:`${c.w/2},2 ${c.w-2},${c.h/2} ${c.w/2},${c.h-2} 2,${c.h/2}`});else shape=S('rect',{x:1,y:1,width:c.w-2,height:c.h-2,rx:c.shape==='round'?18:0});if(c.shape==='arrow'){const defs=S('defs'),marker=S('marker',{id:'node-arrow-'+c.id,viewBox:'0 0 10 10',refX:9,refY:5,markerWidth:6,markerHeight:6,orient:'auto'});marker.append(S('path',{d:'M 0 0 L 10 5 L 0 10 z',fill:c.stroke||'#7480a5'}));defs.append(marker);g.append(defs);shape.setAttribute('marker-end',`url(#node-arrow-${c.id})`)}shape.setAttribute('fill',['line','arrow'].includes(c.shape)?'none':c.fill||'transparent');shape.setAttribute('stroke',c.stroke||'#7480a5');shape.setAttribute('stroke-width',c.strokeWidth||2);if(c.borderDash==='dash')shape.setAttribute('stroke-dasharray','8 5');g.append(shape);e.append(g)}if(c.object==='sticky')e.style.background=c.fill||'#fff0a6';const t=E('div','node-text');t.textContent=c.body||'';e.append(t);if(c.object==='text')requestAnimationFrame(()=>{if(e.isConnected&&t.scrollHeight>c.h){c.h=t.scrollHeight;e.style.height=c.h+'px';updateSelection();save()}});e.ondblclick=ev=>{if(c.locked||tool==='link')return;ev.stopPropagation();editText(c,e,t)}}
  if(c.locked){const badge=E('span','lock-badge');badge.textContent='▣';e.append(badge)}return e}
 const originalCard=card;card=function(c){if(c.asset&&!c.object)c.object='image';if(c.plainObject==='text'&&!c.object)c.object='text';if(c.object)return boardNode(c);const e=originalCard(c);styleNode(e,c);if(c.collapsed){e.tabIndex=0;const info=e.querySelector('.tokenbuttons button');if(info)info.textContent='i'}return e};
-renderWorld=function(){for(const e of [...world.children])if(e.matches('.card,.token,.board-node'))e.remove();cards.filter(visible).forEach((c,i)=>{const e=card(c);e.style.zIndex=c.zone?10000+i:c.object==='frame'?0:i+1;world.insertBefore(e,selBox)});selected=new Set([...selected].filter(id=>cards.some(c=>c.id===id&&visible(c))));drawLinks();updateSelection();renderLayers()};
+const boardRenderCache=new Map();
+renderWorld=function(){
+ const shown=cards.filter(visible),ids=new Set(shown.map(c=>c.id));
+ for(const e of [...world.children])if(e.matches('.card,.token,.board-node')&&!ids.has(e.dataset.id))e.remove();
+ for(const id of boardRenderCache.keys())if(!ids.has(id))boardRenderCache.delete(id);
+ const elements=shown.map((c,i)=>{const {x,y,angle,opacity,asset,portrait,...appearance}=c,key=JSON.stringify(appearance),previous=boardRenderCache.get(c.id);let e=previous?.element;
+  if(!e?.isConnected||previous.ref!==c||previous.key!==key||previous.asset!==asset||previous.portrait!==portrait){const next=card(c);if(e?.isConnected)e.replaceWith(next);e=next;boardRenderCache.set(c.id,{ref:c,key,asset,portrait,element:e})}
+  styleNode(e,c);e.style.zIndex=c.zone?10000+i:c.object==='frame'?0:i+1;return e;
+ });let anchor=selBox;for(let i=elements.length-1;i>=0;i--){const e=elements[i];if(e.nextSibling!==anchor)world.insertBefore(e,anchor);anchor=e}
+ selected=new Set([...selected].filter(id=>ids.has(id)));drawLinks();updateSelection();renderLayers();
+};
 function select(ids,add=false){if(!add)selected.clear();for(const id of ids){const c=cards.find(c=>c.id===id);if(!c||!visible(c)||!layerEditable(c))continue;selected.add(id);if(c.group)cards.filter(x=>x.group===c.group&&visible(x)&&layerEditable(x)).forEach(x=>selected.add(x.id))}selectedLink=null;updateSelection();renderProperties();renderLayers()}
-function updateSelection(){world.querySelectorAll('[data-id]').forEach(e=>e.classList.toggle('selected',selected.has(e.dataset.id)));const list=chosen(),b=bounds(list);selBox.hidden=!b||list.every(c=>c.locked);if(b){selBox.style.cssText=`left:${b.x}px;top:${b.y}px;width:${b.w}px;height:${b.h}px;transform:rotate(${list.length===1?(list[0].angle||0):0}deg)`;const scale=1/view.z;for(const h of selBox.children)h.style.zoom=scale;rot.hidden=list.length!==1||list[0].type==='character';} }
+function updateSelection(){world.querySelectorAll('[data-id]').forEach(e=>{const next=selected.has(e.dataset.id);if(e.classList.contains('selected')!==next)e.classList.toggle('selected',next)});const list=chosen(),b=bounds(list);selBox.hidden=!b||list.every(c=>c.locked);if(b){selBox.style.cssText=`left:${b.x}px;top:${b.y}px;width:${b.w}px;height:${b.h}px;transform:rotate(${list.length===1?(list[0].angle||0):0}deg)`;const scale=1/view.z;for(const h of selBox.children)h.style.zoom=scale;rot.hidden=list.length!==1||list[0].type==='character';} }
 function editText(c,e,t){if(editing)finishEditing();select([c.id]);editing={c,e,t,before:c.body||''};t.contentEditable='true';t.style.userSelect='text';t.focus();const range=document.createRange();range.selectNodeContents(t);range.collapse(false);const selection=window.getSelection();selection.removeAllRanges();selection.addRange(range);snapshot();t.oninput=()=>{c.body=t.innerText.slice(0,30000);if(c.object==='text'){c.h=Math.max(40,t.scrollHeight);e.style.height=c.h+'px';updateSelection()}persist()};t.onblur=()=>finishEditing();}
 function finishEditing(){if(!editing)return;const {c,t}=editing;editing=null;c.body=t.innerText.slice(0,30000);t.contentEditable='false';t.onblur=null;persist();renderProperties()}
 
@@ -550,6 +566,13 @@ const l1=text('01  /  ГЕРОИ',130,232,230,24,11,'#8b918b',true),l2=text('02 
 const footer=text('Бесконечное поле. Никаких рамок для воображения.',130,584,850,30,14,'#92978f');
 cards=[eyebrow,title,subtitle,l1,l2,l3,h,aspect,note,footer];links=[];view=mobileMode()?{x:15,y:90,z:.62}:{x:42,y:82,z:Math.min(1,(innerWidth-140)/1080)};
 };
+// One execution per animation frame; flush preserves the final pointer position.
+function frameQueue(run,schedule=requestAnimationFrame,cancel=cancelAnimationFrame){
+ let frame=null,args,receiver;
+ const flush=()=>{if(frame!==null){cancel(frame);frame=null}if(!args)return;const pending=args,context=receiver;args=null;run.apply(context,pending)};
+ function queue(...next){args=next;receiver=this;if(frame===null)frame=schedule(()=>{frame=null;flush()})}
+ queue.flush=flush;return queue;
+}
 /* Touch-first controls. This code shares the board's state, not a second model. */
 function mobileMode(){return matchMedia('(max-width: 760px), (pointer: coarse) and (max-width: 1100px)').matches}
 let mobileSheetOpen=false,mobileMulti=false,mobileGesture=null,mobileLastTap=null,mobileActionSignature='';
@@ -601,7 +624,6 @@ function frameForPhone(){if(!mobileMode())return;const b=bounds(cards.filter(vis
 // Touch gestures run in window capture before the mouse-oriented canvas handlers.
 function suppressTouch(ev){ev.preventDefault();ev.stopImmediatePropagation()}
 function captureTouch(ev){try{viewport.setPointerCapture(ev.pointerId)}catch{}}
-function touchGeometry(){return new Map(cards.map(c=>[c.id,{x:c.x,y:c.y,w:c.w,h:c.h,tokenSize:c.tokenSize,angle:c.angle}]))}
 function cancelCanvasGesture(){cancelZoneDrawing();const g=mobileGesture;if(!g)return;if(drawFrame){cancelAnimationFrame(drawFrame);drawFrame=0}const changed=drag&&['create','draw','erase','resize','rotate'].includes(drag.type)||action&&['resize','tokensize','move'].includes(action.type)||g.type==='move';if(changed&&past.length){const previous=JSON.parse(past.pop());cards=previous.cards;links=previous.links;redo=g.redoHistory||[]}drag=null;action=null;painting=null;source=null;marquee.hidden=true;renderWorld()}
 window.addEventListener('pointerdown',ev=>{
  if(!mobileMode()||ev.pointerType!=='touch'||!ev.target.closest('#viewport'))return;
@@ -610,29 +632,34 @@ window.addEventListener('pointerdown',ev=>{
  mobilePointers.set(ev.pointerId,{x:ev.clientX,y:ev.clientY});
  if(mobilePointers.size>=2){suppressTouch(ev);cancelCanvasGesture();finishEditing();mobileSheetOpen=false;properties.hidden=true;const [a,b]=[...mobilePointers.values()];const mid={x:(a.x+b.x)/2,y:(a.y+b.y)/2};mobileGesture={type:'pinch',distance:Math.max(1,Math.hypot(a.x-b.x,a.y-b.y)),z:view.z,anchor:{x:(mid.x-view.x)/view.z,y:(mid.y-view.y)/view.z}};captureTouch(ev);return}
  const element=ev.target.closest('[data-id]'),c=element?cards.find(c=>c.id===element.dataset.id):null;
- const geometry=touchGeometry(),pastLength=past.length,redoHistory=redo.slice();
- if(tool==='link'){suppressTouch(ev);mobileGesture={type:'link-tap',id:ev.pointerId,c,start:{x:ev.clientX,y:ev.clientY},view:{...view},geometry,pastLength,redoHistory,moved:false};captureTouch(ev);return}
- if(ev.target.closest('#selection-box,.resize,.tokenresize')||!['select','hand'].includes(tool)||ev.target.closest('.wire')){mobileGesture={type:'legacy',geometry,pastLength,redoHistory};return}
- suppressTouch(ev);finishEditing();mobileGesture={type:'pending',id:ev.pointerId,c,start:{x:ev.clientX,y:ev.clientY},view:{...view},wasSelected:!!c&&selected.has(c.id),geometry,pastLength,redoHistory,moved:false};captureTouch(ev);
+ const redoHistory=redo.slice();
+ if(tool==='link'){suppressTouch(ev);mobileGesture={type:'link-tap',id:ev.pointerId,c,start:{x:ev.clientX,y:ev.clientY},view:{...view},redoHistory,moved:false};captureTouch(ev);return}
+ if(ev.target.closest('#selection-box,.resize,.tokenresize')||!['select','hand'].includes(tool)||ev.target.closest('.wire')){mobileGesture={type:'legacy',redoHistory};return}
+ suppressTouch(ev);finishEditing();mobileGesture={type:'pending',id:ev.pointerId,c,start:{x:ev.clientX,y:ev.clientY},view:{...view},wasSelected:!!c&&selected.has(c.id),redoHistory,moved:false};captureTouch(ev);
 },true);
-window.addEventListener('pointermove',ev=>{
- if(!mobilePointers.has(ev.pointerId))return;mobilePointers.set(ev.pointerId,{x:ev.clientX,y:ev.clientY});const g=mobileGesture;if(!g||g.type==='legacy')return;suppressTouch(ev);
+const paintMobileMove=frameQueue(ev=>{
+ if(!mobilePointers.has(ev.pointerId))return;mobilePointers.set(ev.pointerId,{x:ev.clientX,y:ev.clientY});const g=mobileGesture;if(!g||g.type==='legacy')return;
  if(g.type==='pinch'){if(mobilePointers.size<2)return;const [a,b]=[...mobilePointers.values()],mid={x:(a.x+b.x)/2,y:(a.y+b.y)/2},distance=Math.hypot(a.x-b.x,a.y-b.y);view.z=Math.max(.2,Math.min(2.5,g.z*distance/g.distance));view.x=mid.x-g.anchor.x*view.z;view.y=mid.y-g.anchor.y*view.z;transform();return}
  if(g.type==='after-pinch'||g.id!==ev.pointerId)return;
  const dx=ev.clientX-g.start.x,dy=ev.clientY-g.start.y;
- if(!g.moved&&Math.hypot(dx,dy)>9){g.moved=true;g.type=tool==='select'&&g.c&&g.wasSelected&&!g.c.locked&&!mobileMulti?'move':'pan';if(g.type==='move'){snapshot();g.items=frameChildren(editable()).map(c=>({c,x:c.x,y:c.y}))}}
+ if(!g.moved&&Math.hypot(dx,dy)>9){g.moved=true;g.type=tool==='select'&&g.c&&!g.c.locked&&!mobileMulti?'move':'pan';if(g.type==='move'){if(!selected.has(g.c.id))select([g.c.id]);snapshot();g.items=frameChildren(editable()).map(c=>({c,x:c.x,y:c.y}))}}
  if(g.type==='pan'){view.x=g.view.x+dx;view.y=g.view.y+dy;transform()}
  if(g.type==='move'){for(const it of g.items){it.c.x=quant(it.x+dx/g.view.z);it.c.y=quant(it.y+dy/g.view.z);const e=node(it.c.id);if(e){e.style.left=it.c.x+'px';e.style.top=it.c.y+'px'}}drawLinks();updateSelection()}
+});
+window.addEventListener('pointermove',ev=>{
+ if(!mobilePointers.has(ev.pointerId))return;
+ mobilePointers.set(ev.pointerId,{x:ev.clientX,y:ev.clientY});if(!mobileGesture||mobileGesture.type==='legacy')return;
+ suppressTouch(ev);paintMobileMove({pointerId:ev.pointerId,clientX:ev.clientX,clientY:ev.clientY});
 },true);
 for(const type of ['pointerup','pointercancel'])window.addEventListener(type,ev=>{
- if(!mobilePointers.has(ev.pointerId))return;mobilePointers.delete(ev.pointerId);const g=mobileGesture;if(!g)return;if(g.type==='legacy'){if(!mobilePointers.size)mobileGesture=null;return}suppressTouch(ev);
+ if(!mobilePointers.has(ev.pointerId))return;paintMobileMove.flush();mobilePointers.delete(ev.pointerId);const g=mobileGesture;if(!g)return;if(g.type==='legacy'){if(!mobilePointers.size)mobileGesture=null;return}suppressTouch(ev);
  if(g.type==='pinch'||g.type==='after-pinch'){mobileGesture=mobilePointers.size?{type:'after-pinch'}:null;persist();return}
  if(type!=='pointercancel'&&!g.moved&&g.type==='link-tap'){if(g.c){if(!source){source=g.c.id;renderWorld();notice('Теперь коснитесь второго объекта.')}else if(source!==g.c.id){snapshot();const link={id:uid(),a:source,b:g.c.id,color:$('#linecolor').value,...cleanLink({})};links.push(link);source=null;selected.clear();selectedLink=link.id;setTool('select');drawLinks();renderProperties();persist()}}mobileGesture=null;return}
  if(type!=='pointercancel'&&!g.moved){if(g.c){if(mobileMulti&&selected.has(g.c.id)){const group=g.c.group;for(const c of cards)if(c.id===g.c.id||(group&&c.group===group))selected.delete(c.id);updateSelection();renderProperties()}else select([g.c.id],mobileMulti);mobileLastTap={id:g.c.id,time:Date.now()}}else{selected.clear();selectedLink=null;mobileMulti=false;mobileSheetOpen=false;updateSelection();renderProperties();drawLinks()}}
  if(type!=='pointercancel'&&!g.moved&&!g.c&&document.body.dataset.boardLayer!=='zones')zoneInfoAt(position(ev),ev.clientX,ev.clientY,true);
  if(!mobilePointers.size)mobileGesture=null;renderProperties();renderLayers();syncMobileActions();persist();
 },true);
-window.addEventListener('blur',()=>{mobilePointers.clear();mobileGesture=null});
+window.addEventListener('blur',()=>{paintMobileMove.flush();mobilePointers.clear();mobileGesture=null});
 // Activate touch controls on release. Browsers can suppress the synthetic click
 // immediately after a canvas drag, so relying on click alone loses the first tap.
 const mobileControlTouches=new Map();let mobileClickGuard=null;
@@ -846,7 +873,7 @@ const roomFallbackOrigin=document.querySelector('meta[name="fate-room-fallback"]
 let roomEndpointPromise;
 function roomResolveEndpoint(){return roomEndpointPromise||=chooseRoomOrigin(roomAPIOrigin,roomFallbackOrigin).then(origin=>roomAPIOrigin=origin)}
 /* Shared rooms use per-object patches; the local board remains independent. */
-let roomSession=null,roomBaseline={cards:[],links:[]},roomRevision=-1,roomCursor=0,roomBusy=false,roomTimer,roomLocal=null,roomBooting=false;
+let roomSession=null,roomBaseline={cards:[],links:[]},roomRevision=-1,roomCursor=0,roomBusy=false,roomTimer,roomLocal=null,roomBooting=false,roomPendingChanges=false;
 let roomMembers=[],roomSettings={},roomApplying=false,roomCallId='',roomMuted=false,roomPollRunning=false;
 const roomPanel=E('aside','panel');roomPanel.id='room-panel';roomPanel.hidden=true;roomPanel.setAttribute('aria-label','Комната совместной игры');document.body.append(roomPanel);
 const roomHead=E('h3','panelhead');roomHead.append(Object.assign(E('span'),{textContent:'Совместная игра'}),B('×',()=>roomPanel.hidden=true,'Закрыть комнату'));roomPanel.append(roomHead);attachWindow(roomPanel);
@@ -874,16 +901,16 @@ function roomRebaseHistory(remote,exclude=new Set()){
  const p={cards:remote.cards.filter(c=>!exclude.has(c.id)),links:remote.links.filter(c=>!exclude.has(c.id)),deletedCards:remote.deletedCards.filter(id=>!exclude.has(id)),deletedLinks:remote.deletedLinks.filter(id=>!exclude.has(id))};if(!roomHasDiff(p))return;
  const rebase=items=>items.map(raw=>{try{return JSON.stringify(roomMerge(JSON.parse(raw),p))}catch{return raw}});past=rebase(past);redo=rebase(redo);
 }
-const roomLocalFlush=flush;flush=function(){if(!roomSession){if(!roomBooting)roomLocalFlush();return}if(roomApplying)return;try{localStorage.setItem('fate-room-cache:'+roomSession.id,JSON.stringify(roomState()))}catch{}$('#board-status').textContent='Комната · отправка изменений…';clearTimeout(roomTimer);roomTimer=setTimeout(roomSync,120)};
-async function roomSync(){if(!roomSession||roomBusy||roomBooting)return;const session=roomSession,patch=roomDiff(roomBaseline,roomState());if(!roomHasDiff(patch)){roomStatus();return}roomBusy=true;const sentState=roomState();try{const result=await roomAPI('sync',patch);if(roomSession!==session)return;const afterSend=roomDiff(sentState,roomState());roomRebaseHistory(roomDiff(roomBaseline,result.state),new Set([...patch.cards,...patch.links].map(c=>c.id).concat(patch.deletedCards,patch.deletedLinks)));roomBaseline=copy(result.state);const next=roomMerge(result.state,afterSend);roomAssign(next);roomRevision=result.revision;if(!drag&&!editing&&!isForm(document.activeElement)){render();renderProperties()}roomStatus()}catch(e){if(e.status===404&&roomSession===session){await roomForget(session,'Ведущий удалил комнату. Вы вернулись к личной доске.');return}if(e.status===403){roomBaseline={cards:[],links:[]};roomRevision=-1;notice(e.message)}else roomError(e)}finally{roomBusy=false}}
-function roomStatus(){if(roomSession)$('#board-status').textContent='Комната · '+(roomHasDiff(roomDiff(roomBaseline,roomState()))?'ожидает отправки':roomMembers.length+' в сети · синхронизировано')}
+const roomLocalFlush=flush;flush=function(){if(!roomSession){if(!roomBooting)roomLocalFlush();return}if(roomApplying)return;roomPendingChanges=true;try{localStorage.setItem('fate-room-cache:'+roomSession.id,JSON.stringify(roomState()))}catch{}$('#board-status').textContent='Комната · отправка изменений…';clearTimeout(roomTimer);roomTimer=setTimeout(roomSync,120)};
+async function roomSync(force=false){if(!roomSession||roomBusy||roomBooting)return;if(!force&&!roomPendingChanges)return;const session=roomSession,patch=roomDiff(roomBaseline,roomState());if(!roomHasDiff(patch)){roomPendingChanges=false;roomStatus();return}roomBusy=true;const sentState=roomState();try{const result=await roomAPI('sync',patch);if(roomSession!==session)return;const afterSend=roomDiff(sentState,roomState());roomPendingChanges=roomHasDiff(afterSend);roomRebaseHistory(roomDiff(roomBaseline,result.state),new Set([...patch.cards,...patch.links].map(c=>c.id).concat(patch.deletedCards,patch.deletedLinks)));roomBaseline=copy(result.state);const next=roomMerge(result.state,afterSend);roomAssign(next);roomRevision=result.revision;if(!drag&&!editing&&!isForm(document.activeElement)){render();renderProperties()}roomStatus()}catch(e){if(e.status===404&&roomSession===session){await roomForget(session,'Ведущий удалил комнату. Вы вернулись к личной доске.');return}if(e.status===403){roomBaseline={cards:[],links:[]};roomRevision=-1;notice(e.message)}else roomError(e)}finally{roomBusy=false}}
+function roomStatus(){if(roomSession)$('#board-status').textContent='Комната · '+(roomPendingChanges?'ожидает отправки':roomMembers.length+' в сети · синхронизировано')}
 function roomSetRole(value){role=value;roleDrop.querySelector('select').value=value;roleDrop.querySelector('select').disabled=!!roomSession;roleDrop.querySelector('.small').textContent=roomSession?'Роль назначена комнатой. Слой ведущего скрыт от игроков.':'Локальные режимы просмотра. Слой мастера не защищён паролем.';for(const s of mobileGameDrop.querySelectorAll('select'))if([...s.options].some(o=>o.value==='gm')){s.value=value;s.disabled=!!roomSession}if(value!=='gm')setBoardLayer('game');syncZoneMode();render()}
 async function roomStart(session){
- roomBooting=true;try{const data=await roomAPI('',undefined,session);if(!roomLocal)roomLocal=copy(payload());roomSession=session;roomRevision=data.revision;roomSettings=data.settings;roomMembers=data.members;roomCursor=Math.max(0,...data.events.map(e=>e.id));roomApply(data.state,false);past=[];redo=[];roomSetRole(data.role);localStorage.setItem(roomStore(session.id),JSON.stringify(session));const url=new URL(location.href);url.searchParams.set('room',session.id);history.replaceState(null,'',url);roomPanel.hidden=false;roomButton.classList.add('room-active');roomButton.textContent='Комната · '+roomMembers.length;roomRender();roomStatus();musicUseRoom(data.media,data.serverNow);}finally{roomBooting=false}
+ roomBooting=true;try{const data=await roomAPI('',undefined,session);if(!roomLocal)roomLocal=copy(payload());roomSession=session;roomPendingChanges=false;roomRevision=data.revision;roomSettings=data.settings;roomMembers=data.members;roomCursor=Math.max(0,...data.events.map(e=>e.id));roomApply(data.state,false);past=[];redo=[];roomSetRole(data.role);localStorage.setItem(roomStore(session.id),JSON.stringify(session));const url=new URL(location.href);url.searchParams.set('room',session.id);history.replaceState(null,'',url);roomPanel.hidden=false;roomButton.classList.add('room-active');roomButton.textContent='Комната · '+roomMembers.length;roomRender();roomStatus();musicUseRoom(data.media,data.serverNow);}finally{roomBooting=false}
 }
 async function roomCreate(){const title=roomBody.querySelector('[aria-label="Название комнаты"]')?.value,player=roomBody.querySelector('[aria-label="Ваше имя"]')?.value;const b=roomBody.querySelector('.room-primary');b.disabled=true;try{finishEditing();const session=await roomAPI('',{name:title,player,state:roomState()},null);await roomStart(session);notice('Комната создана. Скопируйте приглашение для игроков.')}catch(e){roomError(e);b.disabled=false}}
 async function roomJoin(id){const input=roomBody.querySelector('[aria-label="Ваше имя"]'),b=roomBody.querySelector('.room-primary');b.disabled=true;try{const session=await roomAPI('join',{name:input.value},{id});await roomStart(session)}catch(e){roomError(e);b.disabled=false}}
-async function roomLeave(){if(roomBusy||roomHasDiff(roomDiff(roomBaseline,roomState()))){await roomSync();if(roomBusy||roomHasDiff(roomDiff(roomBaseline,roomState()))){notice('Дождитесь отправки изменений. При сбое сохраните JSON доски.');return}}await roomCallLeave();roomSession=null;musicEndRoom();roomBaseline={cards:[],links:[]};roomRevision=-1;const url=new URL(location.href);url.searchParams.delete('room');history.replaceState(null,'',url);if(roomLocal){cards=roomLocal.cards;links=roomLocal.links;view=roomLocal.view;roomLocal=null}past=[];redo=[];roomSetRole('gm');roomButton.textContent='Комната';roomButton.classList.remove('room-active');roomRender();roomLocalFlush();renderProperties()}
+async function roomLeave(){if(roomBusy||roomHasDiff(roomDiff(roomBaseline,roomState()))){await roomSync(true);if(roomBusy||roomHasDiff(roomDiff(roomBaseline,roomState()))){notice('Дождитесь отправки изменений. При сбое сохраните JSON доски.');return}}await roomCallLeave();roomSession=null;musicEndRoom();roomBaseline={cards:[],links:[]};roomRevision=-1;const url=new URL(location.href);url.searchParams.delete('room');history.replaceState(null,'',url);if(roomLocal){cards=roomLocal.cards;links=roomLocal.links;view=roomLocal.view;roomLocal=null}past=[];redo=[];roomSetRole('gm');roomButton.textContent='Комната';roomButton.classList.remove('room-active');roomRender();roomLocalFlush();renderProperties()}
 async function roomForget(session,message='Комната удалена.'){
  localStorage.removeItem(roomStore(session.id));localStorage.removeItem('fate-room-cache:'+session.id);
  if(roomSession?.id===session.id){
@@ -912,7 +939,7 @@ function roomRender(){
  }
  roomBody.append(B('Выйти к личной доске',roomLeave));if(role==='gm'){const remove=B('Удалить комнату',()=>roomDelete(roomSession));remove.className='room-danger';roomBody.append(remove)}
 }
-function roomRenderMembers(){const list=$('#room-members');if(!list)return;list.replaceChildren();for(const m of roomMembers){const row=E('div','room-member'),avatar=E('span','room-avatar'),info=E('span');avatar.textContent=m.name.slice(0,1).toUpperCase();info.textContent=m.name+(m.id===roomSession.member?' · вы':'');const status=E('small');status.textContent=m.role==='gm'?'Ведущий':'Игрок';const sound=E('span','room-member-sound');sound.textContent=m.inCall?(m.muted?'Микр. выкл.':'В созвоне'):'На доске';row.append(avatar,info,status,sound);list.append(row)}}
+function roomRenderMembers(){const list=$('#room-members');if(!list)return;const signature=JSON.stringify(roomMembers);if(list.dataset.members===signature)return;list.dataset.members=signature;list.replaceChildren();for(const m of roomMembers){const row=E('div','room-member'),avatar=E('span','room-avatar'),info=E('span');avatar.textContent=m.name.slice(0,1).toUpperCase();info.textContent=m.name+(m.id===roomSession.member?' · вы':'');const status=E('small');status.textContent=m.role==='gm'?'Ведущий':'Игрок';const sound=E('span','room-member-sound');sound.textContent=m.inCall?(m.muted?'Микр. выкл.':'В созвоне'):'На доске';row.append(avatar,info,status,sound);list.append(row)}}
 /* The provider owns media transport and relays; board rooms only track attendance. */
 let roomVoiceAPI=null,roomVoiceJoined=false,roomVoiceLoading=false,roomVoiceGeneration=0,roomVoiceLoader=null,roomVoiceWatchdog;
 const voicePanel=E('aside','panel');voicePanel.id='voice-panel';voicePanel.hidden=true;voicePanel.setAttribute('aria-label','Голосовой созвон');
@@ -944,7 +971,7 @@ async function roomCallLeave(){++roomVoiceGeneration;clearTimeout(roomVoiceWatch
 
 function roomRoll(data){if(roomSession)roomAPI('event',{kind:'roll',data}).catch(roomError)}
 function roomShowRoll(e){if(e.sender===roomSession.member)return;const d=e.data,raw=d.nums.reduce((a,b)=>a+b,0),total=raw+d.mod,text=d.player+' · '+d.who+': ['+d.nums.map(signed).join(' ')+'] '+signed(raw)+' + ('+signed(d.mod)+') = '+signed(total);$('#who').textContent=d.player+' · '+d.who;$('#result').textContent=signed(total);const item=E('div');item.textContent=text;$('#history').prepend(item);while($('#history').children.length>30)$('#history').lastChild.remove();notice(text)}
-async function roomPoll(){if(!roomSession||roomPollRunning||roomBooting)return;roomPollRunning=true;const session=roomSession;try{await roomSync();if(roomBusy)return;const musicRequestedAt=Date.now();const r=await roomAPI('?since='+roomCursor+'&revision='+roomRevision);if(roomSession!==session)return;musicReceive(r.media,r.serverNow,musicRequestedAt);const callChanged=roomSettings.callEnabled!==r.settings.callEnabled;roomSettings=r.settings;roomMembers=r.members;if(callChanged)roomRenderCall();if(r.revision!==roomRevision&&!drag&&!editing&&!isForm(document.activeElement)){roomApply(r.state);roomRevision=r.revision}if(!r.settings.callEnabled&&(roomVoiceAPI||roomVoiceLoading))await roomCallLeave();for(const e of r.events){roomCursor=Math.max(roomCursor,e.id);if(e.kind==='roll')roomShowRoll(e);}roomButton.textContent='Комната · '+r.members.length;roomRenderMembers();roomStatus()}catch(e){if(e.status===404&&roomSession===session)await roomForget(session,'Ведущий удалил комнату. Вы вернулись к личной доске.');else if(roomSession===session)$('#board-status').textContent='Комната · переподключение…'}finally{roomPollRunning=false}}
+async function roomPoll(){if(!roomSession||roomPollRunning||roomBooting||drag||action||mobileGesture||editing||(document.hidden&&!roomVoiceAPI&&!musicListening))return;roomPollRunning=true;const session=roomSession;try{await roomSync();if(roomBusy)return;const musicRequestedAt=Date.now();const r=await roomAPI('?since='+roomCursor+'&revision='+roomRevision);if(roomSession!==session)return;musicReceive(r.media,r.serverNow,musicRequestedAt);const callChanged=roomSettings.callEnabled!==r.settings.callEnabled;roomSettings=r.settings;roomMembers=r.members;if(callChanged)roomRenderCall();if(r.revision!==roomRevision&&!drag&&!editing&&!isForm(document.activeElement)){roomApply(r.state);roomRevision=r.revision}if(!r.settings.callEnabled&&(roomVoiceAPI||roomVoiceLoading))await roomCallLeave();for(const e of r.events){roomCursor=Math.max(roomCursor,e.id);if(e.kind==='roll')roomShowRoll(e);}roomButton.textContent='Комната · '+r.members.length;roomRenderMembers();roomStatus()}catch(e){if(e.status===404&&roomSession===session)await roomForget(session,'Ведущий удалил комнату. Вы вернулись к личной доске.');else if(roomSession===session)$('#board-status').textContent='Комната · переподключение…'}finally{roomPollRunning=false}}
 // Keep the query on the room endpoint rather than treating it as a path segment.
 const roomOriginalAPI=roomAPI;roomAPI=async function(path='',data,session=roomSession){if(path.startsWith('?')){await roomResolveEndpoint();const response=await fetch(roomAPIOrigin+'/api/rooms/'+session.id+path,{headers:{Authorization:'Bearer '+session.token},cache:'no-store',signal:AbortSignal.timeout(15000)});const result=await response.json();if(!response.ok)throw Object.assign(new Error(result.error),{status:response.status});return result}return roomOriginalAPI(path,data,session)};
 queueMicrotask(async()=>{const id=new URL(location.href).searchParams.get('room');if(id){roomPanel.hidden=false;roomRender();roomBooting=true;try{const raw=localStorage.getItem(roomStore(id));if(raw)await roomStart(JSON.parse(raw))}catch(e){if(e.status===404)await roomForget({id},'Комната удалена или больше недоступна.');else roomError(e)}finally{roomBooting=false}}setInterval(roomPoll,1200)});
@@ -1066,6 +1093,13 @@ const findCommand=B('⌕',finderOpen,'Поиск действий · Ctrl K');fi
 window.addEventListener('keydown',ev=>{if((ev.ctrlKey||ev.metaKey)&&ev.key.toLowerCase()==='k'){ev.preventDefault();ev.stopImmediatePropagation();if(actionFinder.open)actionFinder.close();else finderOpen()}},true);
 // Direct sound entry for phone menus, without duplicate top-level buttons.
 for(const b of mobileGameDrop.querySelectorAll('button'))if(b.textContent==='Музыка')b.textContent='Музыка и очередь';
+// Batch the expensive visual work; model updates remain synchronous.
+const paintTransform=frameQueue(transform),paintLinks=frameQueue(drawLinks),paintSelection=frameQueue(updateSelection);
+transform=paintTransform;drawLinks=paintLinks;updateSelection=paintSelection;
+let movingTimer;
+window.addEventListener('pointerdown',ev=>{if(ev.target.closest('#viewport')&&!isForm(ev.target)){clearTimeout(movingTimer);document.body.classList.add('board-moving')}},{capture:true,passive:true});
+for(const type of ['pointerup','pointercancel'])window.addEventListener(type,()=>{paintTransform.flush();paintLinks.flush();paintSelection.flush();clearTimeout(movingTimer);movingTimer=setTimeout(()=>document.body.classList.remove('board-moving'),100)},{passive:true});
+window.addEventListener('blur',()=>document.body.classList.remove('board-moving'));
 
 useTheme(theme);setTool(mobileMode()?'hand':'select');
 })();
